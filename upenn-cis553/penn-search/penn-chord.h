@@ -247,6 +247,8 @@ private:
 
   // std::pair<Ipv4Address, Ipv4Address> GetPreAndSucc(Ipv4Address MyNode ,Ipv4Address Node1,Ipv4Address Node2);
   std::pair<Ipv4Address, Ipv4Address> GetPreAndSucc(Ipv4Address MyNode ,Ipv4Address Node1,Ipv4Address Node2);
+
+  void ProcessPublish(std::string terms, std::vector<std::string> filenames);
   // void updata_use(PennChordMessage chordMsg);
 };
 

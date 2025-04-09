@@ -147,7 +147,7 @@ void PennChord::ProcessCommand(std::vector<std::string> tokens)
   }
 
   std::string command = tokens[0];
-  std::cout << "----------------------------COMMAND:" << command[0] << "----------------------------" << std::endl;
+ // std::cout << "----------------------------COMMAND:" << command[0] << "----------------------------" << std::endl;
   try
   {
     if (command[0] == 'J')
@@ -267,7 +267,8 @@ void PennChord::RecvMessage(Ptr<Socket> socket)
     ProcessRingState(message, sourceAddress, sourcePort);
     // std::cout <<"NODE【"<<GetIdFromIp(ipAddr)<<"】:  "<< "NowIp: " << ipAddr << " Hash: " <<PennKeyHelper::CreateShaKey( m_selfNode.successor)- PennKeyHelper::CreateShaKey(ipAddr)<< " Pree: " << m_selfNode.predecessor <<"  Suss"<< m_selfNode.successor << std::endl;
     //  std::cout << " DEBUG【" << JoinNodeId << "】 INFO " << m_selfNode.successor << "(" << GetIdFromIp(m_selfNode.successor) << ")   " << m_selfNode.predecessor << " " << "(" << GetIdFromIp(m_selfNode.predecessor) << ")" << ipAddr << "   Hash: " <<PennKeyHelper::CreateShaKey(ipAddr)<<std::endl;
-
+// TODO: 2. 添加对收到消息类型PENNSEARCH的处理函数
+    // ProcessPennSearch(message, sourceAddress, sourcePort);
     break;
   // case PennChordMessage::RING_STATE:
   //   ProcessRingState(message, sourceAddress, sourcePort);
@@ -604,3 +605,21 @@ void PennChord::outcontrol()
             << CreateShaKey_(m_selfNode.successor) << ">" << std::endl;
   std::cout<< std::endl;
 }
+
+
+void PennChord::ProcessPublish(std::string terms, std::vector<std::string> filenames){
+  // 将倒序列表发布到正确的节点
+  PennChordMessage message = PennChordMessage(PennChordMessage::PENNSEARCH, GetNextTransactionId());
+  message.SetPennSearchOperation("publish");
+  message.SetPennSearchCurrentResults(filenames);
+  
+  std::vector<std::string> results;
+  results.push_back(terms);
+  message.SetPennSearchRemainingQueries(results);
+
+  // TODO1： 添加发送消息的代码
+}
+
+// TODO3: 添加ProcessPennSearch的声明和定义
+// TODO4: 在ProcessPennSearch中添加适当的调试信息确认学序列化和反序列化的正确性
+// TODO5: 添加lookup函数的实现
