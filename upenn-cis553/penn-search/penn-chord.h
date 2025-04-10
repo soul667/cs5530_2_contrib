@@ -133,7 +133,8 @@ public:
   void ProcessLookUp(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort);
   // void ProcessUpdateNeighbors(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort);
   void ProcessRingState(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort);
-  
+  void ProcessPeenSearchResponse(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort);
+  void ProcessSearch(uint32_t send_id, std::vector<std::string> findterms);
   // PennSearch message handlers
   void ProcessPennSearch(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort);
   void HandlePublish(PennChordMessage message);
@@ -160,7 +161,11 @@ public:
   uint32_t GetAbsDiffHash(Ipv4Address addr1, Ipv4Address addr2); 
   bool CheckIsInCircle(Ipv4Address MyNode,Ipv4Address preNode, Ipv4Address succNode);
   void outcontrol();
-
+  void  ProcessCommandSelfUse(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort);
+  void ProcessPublish(std::string terms, std::vector<std::string> filenames);
+  // 用于存储平均跳数  只在搜索层  不在chord层
+  uint32_t lookupCount = 0; // 表示发起的查找请求总数，在Lookup函数中被更新，每次发起新的查找请求时增加计数:
+  uint32_t lookupHopCount = 0; // 表示在Chord环中完成所有查找请求所经过的总跳数
 protected:
   virtual void DoDispose();
 
@@ -242,13 +247,12 @@ private:
   static const std::map<Send_Command, std::string> commandStrings;
   // void SendCommand(Ipv4Address ControledIp,std::string command);
   // void SendCommand(Ipv4Address ControledIp,Send_Command command);
-  void  ProcessCommandSelfUse(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort);
   void  SendCommand(Ipv4Address ControledIp, Send_Command command,Ipv4Address ip_pre="",Ipv4Address ip_succ="");
 
   // std::pair<Ipv4Address, Ipv4Address> GetPreAndSucc(Ipv4Address MyNode ,Ipv4Address Node1,Ipv4Address Node2);
   std::pair<Ipv4Address, Ipv4Address> GetPreAndSucc(Ipv4Address MyNode ,Ipv4Address Node1,Ipv4Address Node2);
 
-  void ProcessPublish(std::string terms, std::vector<std::string> filenames);
+
   // void updata_use(PennChordMessage chordMsg);
 };
 

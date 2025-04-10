@@ -78,6 +78,8 @@ class PennSearch : public PennApplication
     virtual void StartApplication (void);
     virtual void StopApplication (void);
     void PublishUse(std::string filename);
+    void SearchUse(std::vector<std::string>tokens);
+
     Ptr<PennChord> m_chord;
     uint32_t m_currentTransactionId;
     Ptr<Socket> m_socket;

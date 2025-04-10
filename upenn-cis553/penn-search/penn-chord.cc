@@ -71,6 +71,8 @@ PennChord::PennChord()
 
 PennChord::~PennChord()
 {
+  uint32_t curr_id = GetIdFromIp(ipAddr);
+  GraderLogs::AverageHopCount(std::to_string(curr_id),lookupCount, lookupHopCount);
 }
 
 void PennChord::DoDispose()
@@ -129,6 +131,7 @@ void PennChord::HandleJoinRequest(uint32_t JoinNodeId, Ipv4Address target_addr, 
   // std::cout<<though_addr<<"  "<<target_addr<<std::endl;
   message.SetLookUpThoughNode(though_addr); // now ip address
   message.SetLookUpJoinNode(target_addr);
+  message.SetLookUpFromNode(ipAddr); // 当前节点是发起的节点
   message.SetLookUpMessage("join");
   message.SetLookUpMessageType("LookupReq_Join");
   // message.SetNodenumber(JoinNodeId); // 发送请求的节点ID
@@ -136,6 +139,11 @@ void PennChord::HandleJoinRequest(uint32_t JoinNodeId, Ipv4Address target_addr, 
   // std::cout << "Prepare to send join request to: " << message.GetLookUp().JoinNode << "  from " << message.GetLookUp().ThoughNode << std::endl;
   // if(DEBUG) std::cout << "发送出的消息: " << "JoinNode: " << message.GetLookUp().JoinNode << "ThoughNode: " << message.GetLookUp().ThoughNode << std::endl;
   transmitRequest(message, though_addr);
+  // 此处为发出请求
+  uint32_t send_hsh = PennKeyHelper::CreateShaKey(though_addr);
+  uint32_t curr_hsh = PennKeyHelper::CreateShaKey(ipAddr);
+  CHORD_LOG(GraderLogs::GetLookupIssueLogStr(curr_hsh,send_hsh));
+  //lookupCount++; //Update total lookups
 }
 
 void PennChord::ProcessCommand(std::vector<std::string> tokens)
@@ -147,7 +155,7 @@ void PennChord::ProcessCommand(std::vector<std::string> tokens)
   }
 
   std::string command = tokens[0];
- // std::cout << "----------------------------COMMAND:" << command[0] << "----------------------------" << std::endl;
+  // std::cout << "----------------------------COMMAND:" << command[0] << "----------------------------" << std::endl;
   try
   {
     if (command[0] == 'J')
@@ -163,6 +171,7 @@ void PennChord::ProcessCommand(std::vector<std::string> tokens)
         ERROR_LOG("Invalid node number format");
         return;
       }
+      std::cout<<"JOIN"<<" "<<nodeNumber_<<std::endl;
       // std::cout << "Join request received from node: " << nodeNumber_ << std::endl;
       uint32_t ByNodeId = static_cast<uint32_t>(nodeNumber_);
       // Ipv4Address ipAddr = GetLocalAddress();
@@ -210,6 +219,11 @@ void PennChord::ProcessCommand(std::vector<std::string> tokens)
         message.SetLookUpMessageType("Ringstate");
         // std::cout << "输出测试："<<message.GetRingState().originatorNode << "  " << message.GetRingState().targetNode << std::endl;
         transmitRequest(message, m_selfNode.successor);
+      }
+      else{
+        // EndOfRingState
+        GraderLogs::EndOfRingState();
+
       }
     }
     else
@@ -267,12 +281,11 @@ void PennChord::RecvMessage(Ptr<Socket> socket)
     ProcessRingState(message, sourceAddress, sourcePort);
     // std::cout <<"NODE【"<<GetIdFromIp(ipAddr)<<"】:  "<< "NowIp: " << ipAddr << " Hash: " <<PennKeyHelper::CreateShaKey( m_selfNode.successor)- PennKeyHelper::CreateShaKey(ipAddr)<< " Pree: " << m_selfNode.predecessor <<"  Suss"<< m_selfNode.successor << std::endl;
     //  std::cout << " DEBUG【" << JoinNodeId << "】 INFO " << m_selfNode.successor << "(" << GetIdFromIp(m_selfNode.successor) << ")   " << m_selfNode.predecessor << " " << "(" << GetIdFromIp(m_selfNode.predecessor) << ")" << ipAddr << "   Hash: " <<PennKeyHelper::CreateShaKey(ipAddr)<<std::endl;
-// TODO: 2. 添加对收到消息类型PENNSEARCH的处理函数
-    // ProcessPennSearch(message, sourceAddress, sourcePort);
     break;
-  // case PennChordMessage::RING_STATE:
-  //   ProcessRingState(message, sourceAddress, sourcePort);
-  //   break;
+  case PennChordMessage::PENNSEARCH:
+    ProcessPeenSearchResponse(message, sourceAddress, sourcePort);
+    break;
+
   default:
     ERROR_LOG("Unknown Message Type!");
     break;
@@ -282,15 +295,9 @@ void PennChord::RecvMessage(Ptr<Socket> socket)
 
 void PennChord::ProcessLookUp(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort)
 {
-  // Ipv4Address fromNode = message.GetLookUp().JoinNode;
-  // Ipv4Address orinNode = message.GetLookUp().ThoughNode;
   std::string lookupMessage = message.GetLookUp().lookupMessage;
-
   if (lookupMessage != "LookupReq_Join")
     return;
-  // if(DEBUG) std::cout << "接受到的消息: " << "JoinNode: " << message.GetLookUp().JoinNode << "ThoughNode: " << message.GetLookUp().ThoughNode << std::endl;
-  // std::cout << "Received Lookup message from: " << message.GetLookUp().JoinNode << ", Message: " << message.GetLookUp().lookupMessage << "   from  " << orinNode << std::endl;
-  //  if (lookupMessage == "LookupReq_Join" || lookupMessage == "LookupReq_Search" || lookupMessage == "LookupReq_InvertedList")
 
   if (lookupMessage == "LookupReq_Join")
   {
@@ -417,12 +424,30 @@ void PennChord::ProcessFind(PennChordMessage message)
   Ipv4Address A = message.GetLookUp().JoinNode;
   Ipv4Address B = message.GetLookUp().ThoughNode;
   Ipv4Address C = m_selfNode.successor;
+
+  uint32_t currHash = PennKeyHelper::CreateShaKey(ipAddr);
+  uint32_t NextNodeKey = PennKeyHelper::CreateShaKey(m_selfNode.successor);
+  std::string closestFingerString = std::to_string(GetIdFromIp(m_selfNode.successor));
+  uint32_t target_key= PennKeyHelper::CreateShaKey(A);
+  // TODO:  JoinNode可能不对 检查一下
   if (m_selfNode.successor == m_selfNode.predecessor && (first_node_id >= 0))
   {
     m_selfNode.successor = message.GetLookUp().JoinNode;
     m_selfNode.predecessor = message.GetLookUp().JoinNode;
     SendCommand(message.GetLookUp().JoinNode, Send_Command::SET_ALL, ipAddr, ipAddr);
     first_node_id = -1;
+    // 每次节点向发起初始查找请求的节点返回查找结果时 也就是找到的时候
+    
+    // 有一个fromNode 最初发起请求的Ip编号
+    Ipv4Address FromNode = message.GetLookUp().FromNode;
+    uint32_t FromNodeKey = PennKeyHelper::CreateShaKey(FromNode);
+    uint32_t FromNodeId = GetIdFromIp(FromNode);
+    CHORD_LOG(GraderLogs::GetLookupResultLogStr(
+      currHash,
+      target_key,
+      std::to_string(FromNodeId),
+      FromNodeKey
+    ));
   }
   else if (PennKeyHelper::CreateShaKey(C) > PennKeyHelper::CreateShaKey(B))
   {
@@ -435,18 +460,28 @@ void PennChord::ProcessFind(PennChordMessage message)
       SendCommand(A, Send_Command::SET_SUCC, C, C);
       SendCommand(B, Send_Command::SET_SUCC, A, A);
       SendCommand(C, Send_Command::SET_PRE, A, A);
-    }
-    else if (keyA > keyC && keyA < keyB)
-    {
-      SendCommand(A, Send_Command::SET_PRE, C, C);
-      SendCommand(A, Send_Command::SET_SUCC, B, B);
-      SendCommand(C, Send_Command::SET_SUCC, A, A);
-      SendCommand(B, Send_Command::SET_PRE, A, A);
+      Ipv4Address FromNode = message.GetLookUp().FromNode;
+      uint32_t FromNodeKey = PennKeyHelper::CreateShaKey(FromNode);
+      uint32_t FromNodeId = GetIdFromIp(FromNode);
+      CHORD_LOG(GraderLogs::GetLookupResultLogStr(
+        currHash,
+        target_key,
+        std::to_string(FromNodeId),
+        FromNodeKey
+      ));
     }
     else
     {
       message.SetLookUpThoughNode(m_selfNode.successor);
       transmitRequest(message, m_selfNode.successor);
+      // 转发请求
+
+      CHORD_LOG(GraderLogs::GetLookupForwardingLogStr(
+        currHash,
+        closestFingerString,
+        NextNodeKey,
+        target_key
+    ));
     }
   }
   else if (PennKeyHelper::CreateShaKey(C) < PennKeyHelper::CreateShaKey(B) && ((PennKeyHelper::CreateShaKey(A) < PennKeyHelper::CreateShaKey(C)) || (PennKeyHelper::CreateShaKey(A) > PennKeyHelper::CreateShaKey(B))))
@@ -456,12 +491,28 @@ void PennChord::ProcessFind(PennChordMessage message)
 
     SendCommand(A, Send_Command::SET_PRE, B, B);
     SendCommand(A, Send_Command::SET_SUCC, C, C);
+    Ipv4Address FromNode = message.GetLookUp().FromNode;
+    uint32_t FromNodeKey = PennKeyHelper::CreateShaKey(FromNode);
+    uint32_t FromNodeId = GetIdFromIp(FromNode);
+    CHORD_LOG(GraderLogs::GetLookupResultLogStr(
+      currHash,
+      target_key,
+      std::to_string(FromNodeId),
+      FromNodeKey
+    ));
   }
   else
   {
     // std::cout<<"FUCK3"<<std::endl;
     message.SetLookUpThoughNode(m_selfNode.successor);
     transmitRequest(message, m_selfNode.successor);
+
+    CHORD_LOG(GraderLogs::GetLookupForwardingLogStr(
+      currHash,
+      closestFingerString,
+      NextNodeKey,
+      target_key
+  ));
   }
   // sign_1=CheckIsInCircle
 }
@@ -580,6 +631,7 @@ void PennChord::ProcessRingState(PennChordMessage message, Ipv4Address sourceAdd
   Ipv4Address fromNode = message.GetLookUp().JoinNode;
   if (fromNode == ipAddr)
   {
+    GraderLogs::EndOfRingState();
     return;
   }
   else
@@ -594,32 +646,335 @@ void PennChord::ProcessRingState(PennChordMessage message, Ipv4Address sourceAdd
 
 void PennChord::outcontrol()
 {
-  std::cout << "Ring State" << std::endl;
-  std::cout << "Curr<Node " << JoinNodeId << ", " << ipAddr << ", " 
-            << CreateShaKey_(ipAddr) << ">" << std::endl;
-  std::cout << "Pred<Node " << GetIdFromIp(m_selfNode.predecessor) << ", " 
-            << m_selfNode.predecessor << ", " 
-            << CreateShaKey_(m_selfNode.predecessor) << ">" << std::endl;
-  std::cout << "Succ<Node " << GetIdFromIp(m_selfNode.successor) << ", " 
-            << m_selfNode.successor << ", " 
-            << CreateShaKey_(m_selfNode.successor) << ">" << std::endl;
-  std::cout<< std::endl;
+//   void GraderLogs::RingState(Ipv4Address currNodeIP,
+//     std::string currNodeId,
+//     uint32_t currNodeKey,
+//     Ipv4Address predNodeIP,
+//     std::string predNodeId,
+//     uint32_t predNodeKey,
+//     Ipv4Address succNodeIP,
+//     std::string succNodeId,
+//     uint32_t succNodeKey)
+// {
+  // std::cout << "Ring State" << std::endl;
+  // std::cout << "Curr<Node " << JoinNodeId << ", " << ipAddr << ", "
+  //           << CreateShaKey_(ipAddr) << ">" << std::endl;
+  // std::cout << "Pred<Node " << GetIdFromIp(m_selfNode.predecessor) << ", "
+  //           << m_selfNode.predecessor << ", "
+  //           << CreateShaKey_(m_selfNode.predecessor) << ">" << std::endl;
+  // std::cout << "Succ<Node " << GetIdFromIp(m_selfNode.successor) << ", "
+  //           << m_selfNode.successor << ", "
+  //           << CreateShaKey_(m_selfNode.successor) << ">" << std::endl;
+  // std::cout << std::endl;
+
+  GraderLogs::RingState(ipAddr,
+                        std::to_string(JoinNodeId),
+                        PennKeyHelper::CreateShaKey(ipAddr),
+                        m_selfNode.predecessor,
+                        std::to_string(GetIdFromIp(m_selfNode.predecessor)),
+                        PennKeyHelper::CreateShaKey(m_selfNode.predecessor),
+                        m_selfNode.successor,
+                        std::to_string(GetIdFromIp(m_selfNode.successor)),
+                        PennKeyHelper::CreateShaKey(m_selfNode.successor));
 }
 
+void PennChord::ProcessPeenSearchResponse(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort)
+{
+  // 接受到倒排索引的响应
+  // 先调试 依次输出 m_message.pennSearch.operation ...
+  // std::cout << "------------------------接受到倒排索引的响应------------------------" << std::endl;
+  // std::cout << "Operation: " << message.GetPennSearch().operation << std::endl;
+  // std::cout << "Origin Node: " << message.GetPennSearch().originNode << std::endl;
+  // std::cout << "Current Results: " << std::endl;
+  // for (const auto &result : message.GetPennSearch().currentResults)
+  // {
+  //   std::cout << result << std::endl;
+  // }
+  // // std::cout << "Remaining Queries: " << std::endl;
+  // for (const auto &query : message.GetPennSearch().remainingQueries)
+  // {
+  //   std::cout << query << std::endl;
+  // }
+  // std::cout << "------------------------接受到倒排索引的响应------------------------" << std::endl;
 
-void PennChord::ProcessPublish(std::string terms, std::vector<std::string> filenames){
+  std::string mode_ = message.GetPennSearch().operation;
+  std::vector<std::string> current_results = message.GetPennSearch().currentResults;
+  if (mode_ == "publish")
+  {
+    std::string term = message.GetPennSearch().remainingQueries[0];
+    uint32_t hash_use = PennKeyHelper::CreateShaKey(term);
+    //     std::string lookupMessage = message.GetLookUp().lookupMessage;
+    // Ipv4Address A = ;
+    Ipv4Address B = ipAddr;
+    Ipv4Address C = m_selfNode.successor;
+    uint32_t keyA = hash_use;
+    uint32_t keyB = PennKeyHelper::CreateShaKey(B);
+    uint32_t keyC = PennKeyHelper::CreateShaKey(C);
+    Ipv4Address target_addr = m_selfNode.successor;
+    bool find_status = 0;
+    if (keyC > keyB)
+    {
+      if (keyA > keyB && keyA < keyC)
+      {
+        find_status = 1;
+      }
+      else
+      {
+        // 发送到下一个节点请求
+        transmitRequest(message, target_addr);
+      }
+    }
+    else if (keyC < keyB && ((keyA < keyC) || keyA > keyB))
+    {
+      find_status = 1;
+    }
+    else
+    {
+      // 发送到下一个节点请求
+      transmitRequest(message, target_addr);
+    }
+
+    // 如果找到了
+    if (find_status)
+    {
+      message.SetPennSearchOperation("publish_set");
+      transmitRequest(message, target_addr);
+    }
+  }
+  else if (mode_ == "publish_set")
+  {
+    std::string term = message.GetPennSearch().remainingQueries[0];
+    // NOTE: 测试正常
+    // 添加到invertedList中
+    // std::cout << "------------------------publish_set------------------------" << std::endl;
+    //   std::cout << "term: " << term << "  HASH: " << PennKeyHelper::CreateShaKey(term) << std::endl;
+    //   // 输出现在节点的Id
+    //   std::cout << "Node ID: " << JoinNodeId << "  IP Address: " << ipAddr << std::endl;
+    for (const auto &current_result : current_results)
+    {
+      invertedList[term].push_back(current_result);
+      SEARCH_LOG(GraderLogs::GetStoreLogStr(term,current_result));
+      // std::cout << "Store <" << term << " , " << current_result << ">" << std::endl;
+    }
+    // std::cout << "------------------------publish_set------------------------" << std::endl;
+  }
+  else if (mode_ == "search_set_use" || mode_ == "search_set_use_first")
+  {
+    // 更新result 和
+    // 更新result
+    std::vector<std::string> results = message.GetPennSearch().currentResults;
+    std::vector<std::string> remainingQueries = message.GetPennSearch().remainingQueries;
+    Ipv4Address target_addr = message.GetPennSearch().originNode;
+    Ipv4Address next_addr = m_selfNode.successor;
+    std::string term = "";
+    if (message.GetPennSearch().remainingQueries.size() != 0)
+      term = message.GetPennSearch().remainingQueries[0];
+    else
+    {
+      message.SetPennSearchOperation("search_set"); // 只剩下一个了 直接发送就行
+      transmitRequest(message, target_addr);
+      return;
+    }
+    // 这个里面是找到了 当然term也可能是" " 如果这样直接输出
+
+    std::vector<std::string> current_id_result = invertedList[term];
+
+    if (mode_ == "search_set_use_first")
+    {
+      results = current_id_result;
+    }
+    else
+    {
+      std::set<std::string> results_set(results.begin(), results.end());
+      std::vector<std::string> intersection;
+      for (const auto &id : current_id_result)
+      {
+        if (results_set.count(id))
+        {
+          intersection.push_back(id);
+        }
+      }
+      results = std::move(intersection);
+    }
+    message.SetPennSearchCurrentResults(results);
+    if (remainingQueries.size() == 1)
+    {
+      message.SetPennSearchOperation("search_set"); // 只剩下一个了 直接发送就行
+      transmitRequest(message, target_addr);
+    }
+    else
+    {
+      // vector remove掉第一个
+      remainingQueries.erase(remainingQueries.begin());
+      message.SetPennSearchRemainingQueries(remainingQueries);
+      message.SetPennSearchOperation("search");
+      message.SetPennSearchNowHops(message.GetPennSearch().NowHops+1);
+      transmitRequest(message, next_addr);
+    }
+  }
+  else if (mode_ == "search" || mode_ == "search_first")
+  {
+    // TODO5: 补充完整，输出一些调试信息
+    // TODO6: 处理查找的结果
+    std::string term = "";
+    if (message.GetPennSearch().remainingQueries.size() != 0)
+      term = message.GetPennSearch().remainingQueries[0];
+    else
+    {
+      message.SetPennSearchOperation("search_set"); // 只剩下一个了 直接发送就行
+      transmitRequest(message, message.GetPennSearch().originNode);
+      return;
+    }
+
+    // std::cout << "------------------------search------------------------" << std::endl;
+    // std::cout << "term: " << term << "  HASH: " << PennKeyHelper::CreateShaKey(term) << std::endl;
+    // // 输出现在节点的Id
+    // std::cout << "Node ID: " << JoinNodeId << "  IP Address: " << ipAddr << std::endl;
+    // std::cout << "Current Results: " << std::endl;
+    // for (const auto &current_result : current_results)
+    // {
+    //   std::cout << current_result << std::endl;
+    // }
+    // std::cout << "------------------------search------------------------" << std::endl;
+    // 从这个IP开始找
+    std::vector<std::string> results = message.GetPennSearch().currentResults;
+    std::vector<std::string> remainingQueries = message.GetPennSearch().remainingQueries;
+    Ipv4Address target_addr = message.GetPennSearch().originNode;
+    Ipv4Address next_addr = m_selfNode.successor;
+
+    if (remainingQueries.size() == 0)
+    {
+      // 发送到输出请求
+      message.SetPennSearchOperation("search_set");
+      transmitRequest(message, target_addr); // 准备输出
+      return;
+    }
+    else
+    {
+      // 还是先做lookup 找到存储这个节点的 应该都能找到
+      uint32_t hash_use = PennKeyHelper::CreateShaKey(term);
+      //     std::string lookupMessage = message.GetLookUp().lookupMessage;
+      // Ipv4Address A = ;
+      Ipv4Address B = ipAddr;
+      Ipv4Address C = m_selfNode.successor;
+      uint32_t keyA = hash_use;
+      uint32_t keyB = PennKeyHelper::CreateShaKey(B);
+      uint32_t keyC = PennKeyHelper::CreateShaKey(C);
+      // Ipv4Address target_addr = m_selfNode.successor;
+      // Ipv4Address next_addr = m_selfNode.successor;
+
+      bool find_status = 0;
+      if (keyC > keyB)
+      {
+        if (keyA > keyB && keyA < keyC)
+        {
+          find_status = 1;
+        }
+        else
+        {
+          // 发送到下一个节点请求
+          message.SetPennSearchNowHops(message.GetPennSearch().NowHops+1);
+          transmitRequest(message, next_addr);
+        }
+      }
+      else if (keyC < keyB && ((keyA < keyC) || keyA > keyB))
+      {
+        find_status = 1;
+      }
+      else
+      {
+        // 发送到下一个节点请求
+        message.SetPennSearchNowHops(message.GetPennSearch().NowHops+1);
+        transmitRequest(message, next_addr);
+      }
+
+      // 如果找到了
+      if (find_status)
+      {
+        if (mode_ == "search_first")
+          message.SetPennSearchOperation("search_set_use_first");
+        else
+          message.SetPennSearchOperation("search_set_use");
+        
+        message.SetPennSearchNowHops(message.GetPennSearch().NowHops+1);
+        transmitRequest(message, next_addr); // 找到了，但是这个key的信息存储在下一个节点，所以需要从下一个节点设置
+      }
+    }
+  }
+  else if (mode_ == "search_set")
+  {
+    // 输出查找信息
+    std::string term = "";
+    if (message.GetPennSearch().remainingQueries.size() != 0)
+      term = message.GetPennSearch().remainingQueries[0];
+    // 这里term应该一直是空的-
+    SEARCH_LOG(GraderLogs::GetSearchResultsLogStr(
+      ipAddr,
+      current_results
+  ));
+  // 这里顺便更新该节点的totalHops
+  std::cout<<"之前的hopcount: "<<lookupHopCount<<std::endl;
+  std::cout<<"现在的hopcount: "<<message.GetPennSearch().NowHops<<std::endl;
+  lookupHopCount=lookupHopCount+ message.GetPennSearch().NowHops;
+    // std::cout << "------------------------search_set------------------------" << std::endl;
+    // std::cout << "term: " << term << "  HASH: " << PennKeyHelper::CreateShaKey(term) << std::endl;
+    // 输出现在节点的Id
+    // std::cout << "Node ID: " << JoinNodeId << "  IP Address: " << ipAddr << std::endl;
+    // std::cout << "Current Results: " << std::endl;
+    // for (const auto &current_result : current_results)
+    // {
+    //   std::cout << current_result << std::endl;
+    // }
+    // std::cout << "------------------------search_set------------------------" << std::endl;
+  }
+  else
+  {
+    std::cout << "Unknown operation" << std::endl;
+  }
+}
+void PennChord::ProcessPublish(std::string terms, std::vector<std::string> current_results)
+{
   // 将倒序列表发布到正确的节点
   PennChordMessage message = PennChordMessage(PennChordMessage::PENNSEARCH, GetNextTransactionId());
   message.SetPennSearchOperation("publish");
-  message.SetPennSearchCurrentResults(filenames);
-  
+  message.SetPennSearchCurrentResults(current_results);
+
   std::vector<std::string> results;
   results.push_back(terms);
   message.SetPennSearchRemainingQueries(results);
+  // std::cout<<"发送的原来的IP"<<ipAddr<<std::endl;
+  // std::cout<<"11111111111111111111111111111111111111111111111111"<<std::endl;
+  message.SetPennSearchOriginNode(ipAddr); // 从哪个节点发过来
 
-  // TODO1： 添加发送消息的代码
+  Ipv4Address target_addr = m_selfNode.successor;
+  transmitRequest(message, target_addr);
 }
+void PennChord::ProcessSearch(uint32_t send_id, std::vector<std::string> findterms)
+{
+  // 输出
+  // std::cout << "------------------------ProcessSearch------------------------" << std::endl;
+  // std::cout << "Node ID: " << JoinNodeId << "  IP Address: " << ipAddr << std::endl;
+  // for (const auto &term : findterms)
+  // {
+  //   std::cout << "Searching for term: " << term << std::endl;
+  // }
+  // std::cout << "------------------------ProcessSearch------------------------" << std::endl;
 
-// TODO3: 添加ProcessPennSearch的声明和定义
-// TODO4: 在ProcessPennSearch中添加适当的调试信息确认学序列化和反序列化的正确性
-// TODO5: 添加lookup函数的实现
+  // TODO3: 补充完整，输出一些调试信息
+  // TODO4: 查找的结果
+  PennChordMessage message = PennChordMessage(PennChordMessage::PENNSEARCH, GetNextTransactionId());
+  message.SetPennSearchOperation("search_first");
+  message.SetPennSearchOriginNode(ipAddr); // 从哪个节点发过来 最后要将搜索结果发到这个节点 注意不要修改
+
+  message.SetPennSearchRemainingQueries(findterms); // 待查找的列表 如果全没有就发送到最初的节点
+  std::vector<std::string> current_result;
+  message.SetPennSearchCurrentResults(current_result); // 当前查找的结果 现在什么都没有
+  message.SetPennSearchNowHops(0); // 现在的跳数
+  // 从send_id获取它的IP
+  Ipv4Address target_addr = GetIpFromId(send_id);
+  transmitRequest(message, target_addr);
+  lookupCount++; // 统计查找次数
+  // 处理搜索请求
+}
+// TODO1: 添加查找的函数
+// TODO2: 输出查找参数判断正确性

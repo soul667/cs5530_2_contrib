@@ -448,7 +448,7 @@ PennChordMessage::LookUp::GetSerializedSize(void) const
   const uint32_t stringHeaderSize = sizeof(uint16_t);
 
   uint32_t totalSize = 0;
-  totalSize += ipv4AddressSize * 2;                     // For JoinNode and ThoughNode
+  totalSize += ipv4AddressSize * 3;                     // For JoinNode and ThoughNode and FromNode
   totalSize += stringHeaderSize + key.size();           // For key and its length
   totalSize += stringHeaderSize + lookupMessage.size(); // For lookupMessage and its length
   totalSize += sizeof(int) * 2;                         // maxDiff和Id
@@ -465,6 +465,10 @@ PennChordMessage::LookUp::Deserialize(Buffer::Iterator &start)
   // Extract JoinNode IP address
   uint32_t joinNodeRaw = start.ReadNtohU32();
   JoinNode = Ipv4Address(joinNodeRaw);
+
+  // Extract FromNode IP address
+  uint32_t fromNodeRaw = start.ReadNtohU32();
+  FromNode = Ipv4Address(fromNodeRaw);
 
   // Extract key string
   uint16_t keyLength = start.ReadU16();
@@ -489,7 +493,7 @@ void PennChordMessage::LookUp::Serialize(Buffer::Iterator &start) const
   // Write the IP addresses
   start.WriteHtonU32(ThoughNode.Get());
   start.WriteHtonU32(JoinNode.Get());
-
+  start.WriteHtonU32(FromNode.Get());
   // Write the key with its length
   const uint16_t keySize = static_cast<uint16_t>(key.size());
   start.WriteU16(keySize);
@@ -559,6 +563,7 @@ uint32_t
 PennChordMessage::PennSearch::GetSerializedSize(void) const
 {
   uint32_t size = 0;
+  size += sizeof(uint32_t);  // NowHops
   size += sizeof(uint16_t) + operation.length();  // operation字符串长度
   size += sizeof(uint16_t) + documentPath.length();  // documentPath字符串长度
   size += IPV4_ADDRESS_SIZE;  // originNode的IP地址
@@ -605,6 +610,8 @@ PennChordMessage::PennSearch::Print(std::ostream &os) const
 void
 PennChordMessage::PennSearch::Serialize(Buffer::Iterator &start) const
 {
+  // 序列化NowHops
+  start.WriteHtonU32(NowHops);
   // 序列化operation
   start.WriteU16(operation.length());
   start.Write((uint8_t*)(const_cast<char*>(operation.c_str())), operation.length());
@@ -616,6 +623,7 @@ PennChordMessage::PennSearch::Serialize(Buffer::Iterator &start) const
   // 序列化originNode
   uint8_t ipBuffer[IPV4_ADDRESS_SIZE];
   originNode.Serialize(ipBuffer);
+  //std::cout<<"序列化前的IP"<<originNode<<std::endl;
   start.Write(ipBuffer, IPV4_ADDRESS_SIZE);
 
   // 序列化currentResults
@@ -638,6 +646,8 @@ PennChordMessage::PennSearch::Serialize(Buffer::Iterator &start) const
 uint32_t
 PennChordMessage::PennSearch::Deserialize(Buffer::Iterator &start)
 {
+  // 反序列化NowHops
+  NowHops = start.ReadNtohU32();
   // 反序列化operation
   uint16_t operationLength = start.ReadU16();
   char* operationStr = (char*)malloc(operationLength);
@@ -653,10 +663,13 @@ PennChordMessage::PennSearch::Deserialize(Buffer::Iterator &start)
   free(pathStr);
 
   // 反序列化originNode
-  uint8_t ipBuffer[IPV4_ADDRESS_SIZE];
-  start.Read(ipBuffer, IPV4_ADDRESS_SIZE);
-  originNode.Deserialize(ipBuffer);
+  //uint8_t ipBuffer[IPV4_ADDRESS_SIZE];
+  //start.Read(ipBuffer, IPV4_ADDRESS_SIZE);
+  //originNode.Deserialize(ipBuffer);
+  uint32_t originNodeRaw = start.ReadNtohU32();
+  originNode = Ipv4Address(originNodeRaw);
 
+  //std::cout<<"解析后的序列化后的IP"<<originNode<<std::endl;
   // 反序列化currentResults
   uint32_t resultsSize = start.ReadNtohU32();
   currentResults.clear();

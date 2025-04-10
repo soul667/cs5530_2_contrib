@@ -124,7 +124,10 @@ public:
         , predecessor(Ipv4Address::GetAny())
     { }
   };
-  
+  void SetLookUpFromNode(Ipv4Address FromNode)
+  {
+    m_message.lookUpMessage.FromNode = FromNode;
+  };
   void SetLookUpJoinNode(Ipv4Address JoinNode)
   {
     m_message.lookUpMessage.JoinNode = JoinNode;
@@ -210,6 +213,8 @@ public:
     // Payload
     Ipv4Address ThoughNode;
     Ipv4Address JoinNode;
+    Ipv4Address FromNode; // 一开始的发起请求的节点
+
     std::string key;
     std::string lookupMessage;
 
@@ -289,6 +294,7 @@ public:
     void Serialize(Buffer::Iterator &start) const;
     uint32_t Deserialize(Buffer::Iterator &start);
 
+    uint32_t NowHops = 0;  // 当前跳数
     std::string operation;  // "PUBLISH" 或 "SEARCH"
     std::string documentPath;  // metadata文件路径
     std::vector<std::string> currentResults;  // 存储倒排列表或搜索结果
@@ -375,6 +381,7 @@ public:
   void SetPennSearchOriginNode(Ipv4Address node)
   {
     m_message.pennSearch.originNode = node;
+    //std::cout << "设置的originNode: " << m_message.pennSearch.originNode << std::endl;
   }
 
   void SetPennSearchCurrentResults(std::vector<std::string> results)
@@ -385,6 +392,14 @@ public:
   void SetPennSearchRemainingQueries(std::vector<std::string> queries)
   {
     m_message.pennSearch.remainingQueries = queries;
+  }
+
+  void SetPennSearchNowHops(uint32_t hops) {
+    m_message.pennSearch.NowHops = hops;
+  }
+  
+  uint32_t GetPennSearchNowHops() {
+    return m_message.pennSearch.NowHops;
   }
 
   /**

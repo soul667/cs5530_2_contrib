@@ -72,7 +72,7 @@ void PennSearch::DoDispose()
 
 void PennSearch::StartApplication(void)
 {
-  // std::cout << "PennSearch::StartApplication()!!!!!" << std::endl;  // remove: to avoid printing
+  std::cout << "PennSearch::StartApplication()!!!!!" << std::endl;  // remove: to avoid printing
   // Create and Configure PennChord
   ObjectFactory factory;
 
@@ -182,6 +182,10 @@ void PennSearch::ProcessCommand(std::vector<std::string> tokens)
       // std::cout << "----------------------------PUBLISH----------------------------" << std::endl;
       std::string filename = tokens.at(1);
       PublishUse(filename);
+    }
+    else if(command=="SEARCH"){
+
+      SearchUse(tokens);
     }
   }
 }
@@ -363,27 +367,62 @@ void PennSearch::PublishUse(std::string filename)
     iss >> doc.name;
     m_termList.push_back(doc.name);
     std::string term;
-    std::cout<<"----------------------------PUBLISH Function----------------------------" << std::endl;
-    std::cout<<"doc.name: "<<doc.name<<std::endl;
+    // std::cout<<"----------------------------PUBLISH Function----------------------------" << std::endl;
+    // std::cout<<"doc.name: "<<doc.name<<std::endl;
     while (iss >> term)
     {
       doc.terms.push_back(term);
       m_invertedLists[term].push_back(doc.name);
-      std::cout << "term: " << term << std::endl;
+      // GraderLogs::Publish(doc.name, term);
+      // 第一个参数是Keyword 第二个参数是文档名
+      SEARCH_LOG(GraderLogs::GetPublishLogStr(term,doc.name));
+
+      // std::cout << "term: " << term << std::endl;
     }
-    docs.push_back(doc);
-    std::cout<<"----------------------------PUBLISH Function----------------------------" << std::endl;
+
+    // std::cout<<"----------------------------PUBLISH Function----------------------------" << std::endl;
   }
 
   for(std::map<std::string, std::vector<std::string>>::iterator it = m_invertedLists.begin(); it != m_invertedLists.end(); ++it)
   {
-    uint32_t hash_use = PennKeyHelper::CreateShaKey( it->first);
-    std::cout << "Inverted List: " << it->first <<"("<<hash_use<<")"<< " -> ";
-    for (const auto &docName : it->second)
-    {
-      std::cout << docName << " ";
-    }
-    std::cout << std::endl;
+    // uint32_t hash_use = PennKeyHelper::CreateShaKey( it->first);
+    // std::cout << "Inverted List: " << it->first <<"("<<hash_use<<")"<< " -> ";
+    m_chord->ProcessPublish(it->first, it->second);
+    // for (const auto &docName : it->second)
+    // {
+    //   std::cout << docName << " ";
+    // }
+    // std::cout << std::endl;
   }
 
+}
+
+
+void PennSearch::SearchUse(std::vector<std::string>tokens)
+{
+// token【0】SEARCH
+// token【1】17
+// token【2】George-Clooney
+// token【3】Brad-Pitt
+// token【4】Matt-Damon
+  // std::cout << "----------------------------SEARCH----------------------------" << std::endl;
+  // std::vector<std::string>::iterator iterator = tokens.begin();
+  // std::cout << *iterator << std::endl;
+  // int now_id = 0;
+  // for (std::string &s : tokens)
+  // {
+  //   std::cout << "token【"<<now_id<<"】" << s<<std::endl;
+  //   now_id+=1;
+  // }
+  uint32_t send_id = std::stoi(tokens.at(1));
+  // 将2到末尾的元素重新放到一个vector中
+  std::vector<std::string> findterms(tokens.begin() + 2, tokens.end());
+  m_chord->ProcessSearch(send_id,findterms);
+  // 输出重构后的vector
+  // std::cout << "重构后的vector: ";
+  // for (const auto &term : findterms)
+  // {
+  //   std::cout << term << " ";
+  // }
+// std::cout << "----------------------------SEARCH----------------------------" << std::endl;
 }
