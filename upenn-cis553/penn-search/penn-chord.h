@@ -251,6 +251,7 @@ private:
 
   // std::pair<Ipv4Address, Ipv4Address> GetPreAndSucc(Ipv4Address MyNode ,Ipv4Address Node1,Ipv4Address Node2);
   std::pair<Ipv4Address, Ipv4Address> GetPreAndSucc(Ipv4Address MyNode ,Ipv4Address Node1,Ipv4Address Node2);
+  bool CheckInside(uint32_t A, uint32_t B, uint32_t C);
 
 
   // void updata_use(PennChordMessage chordMsg);
