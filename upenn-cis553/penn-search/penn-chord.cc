@@ -421,9 +421,15 @@ void PennChord::SetAddressNodeMap(std::map<Ipv4Address, uint32_t> addressNodeMap
 void PennChord::ProcessFind(PennChordMessage message)
 {
   std::string lookupMessage = message.GetLookUp().lookupMessage;
-  Ipv4Address A = message.GetLookUp().JoinNode;
-  Ipv4Address B = message.GetLookUp().ThoughNode;
+  Ipv4Address JoinTargetNode=message.GetLookUp().JoinNode;
+
+  Ipv4Address A =JoinTargetNode;
+  Ipv4Address B = ipAddr;
   Ipv4Address C = m_selfNode.successor;
+  uint32_t keyA = PennKeyHelper::CreateShaKey(A);
+  uint32_t keyB = PennKeyHelper::CreateShaKey(B);
+  uint32_t keyC = PennKeyHelper::CreateShaKey(C);
+
 
   uint32_t currHash = PennKeyHelper::CreateShaKey(ipAddr);
   uint32_t NextNodeKey = PennKeyHelper::CreateShaKey(m_selfNode.successor);
@@ -432,8 +438,8 @@ void PennChord::ProcessFind(PennChordMessage message)
   // TODO:  JoinNode可能不对 检查一下
   if (m_selfNode.successor == m_selfNode.predecessor && (first_node_id >= 0))
   {
-    m_selfNode.successor = message.GetLookUp().JoinNode;
-    m_selfNode.predecessor = message.GetLookUp().JoinNode;
+    m_selfNode.successor = JoinTargetNode;
+    m_selfNode.predecessor = JoinTargetNode;
     SendCommand(message.GetLookUp().JoinNode, Send_Command::SET_ALL, ipAddr, ipAddr);
     first_node_id = -1;
     // 每次节点向发起初始查找请求的节点返回查找结果时 也就是找到的时候
@@ -449,9 +455,6 @@ void PennChord::ProcessFind(PennChordMessage message)
         FromNodeKey));
   }
   else{
-    uint32_t keyA = PennKeyHelper::CreateShaKey(A);
-    uint32_t keyB = PennKeyHelper::CreateShaKey(B);
-    uint32_t keyC = PennKeyHelper::CreateShaKey(C);
     bool isInCircle = CheckInside(keyA, keyB, keyC);
     if(isInCircle){
       SendCommand(A, Send_Command::SET_PRE, B, B);
@@ -460,8 +463,20 @@ void PennChord::ProcessFind(PennChordMessage message)
       SendCommand(C, Send_Command::SET_PRE, A, A);
     }
     else{
-      message.SetLookUpThoughNode(m_selfNode.successor);
-      transmitRequest(message, m_selfNode.successor);
+      Ipv4Address send_target_addr = m_selfNode.successor;
+      // 先检查一下finger table里面 有没有合适的send_target_addr
+      int now_max=0;
+      int now_key=PennKeyHelper::CreateShaKey(ipAddr);
+      for(int i=0;i<=31;i++){
+        FingerTableUse fingerTable_=fingerTable[i];
+        if(fingerTable_.succ!="0"){
+          uint32_t key_start=fingerTable_.GetFingerStart(now_key,i);
+          // if(now_key
+        }
+        // if()
+      }
+      message.SetLookUpThoughNode(send_target_addr);
+      transmitRequest(message,send_target_addr);
       // 转发请求
 
       CHORD_LOG(GraderLogs::GetLookupForwardingLogStr(
@@ -578,10 +593,8 @@ void PennChord::ProcessCommandSelfUse(PennChordMessage message, Ipv4Address sour
 
 void PennChord::ProcessRingState(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort)
 {
-
   std::string Type = message.GetLookUp().lookupMessage;
   // std::cout << "Ringstate  " <<Type<< std::endl;
-
   if (Type != "Ringstate")
     return;
   Ipv4Address fromNode = message.GetLookUp().JoinNode;
@@ -669,28 +682,6 @@ void PennChord::ProcessPeenSearchResponse(PennChordMessage message, Ipv4Address 
     Ipv4Address target_addr = m_selfNode.successor;
     bool find_status = 0;
     find_status = CheckInside(keyA, keyB, keyC);
-    // if (keyC > keyB)
-    // {
-    //   if (keyA > keyB && keyA < keyC)
-    //   {
-    //     find_status = 1;
-    //   }
-    //   else
-    //   {
-    //     // 发送到下一个节点请求
-    //     transmitRequest(message, target_addr);
-    //   }
-    // }
-    // else if (keyC < keyB && ((keyA < keyC) || keyA > keyB))
-    // {
-    //   find_status = 1;
-    // }
-    // else
-    // {
-    //   // 发送到下一个节点请求
-    //   transmitRequest(message, target_addr);
-    // }
-
     // 如果找到了
     if (find_status)
     {
@@ -833,7 +824,6 @@ void PennChord::ProcessPeenSearchResponse(PennChordMessage message, Ipv4Address 
           message.SetPennSearchOperation("search_set_use_first");
         else
           message.SetPennSearchOperation("search_set_use");
-
         message.SetPennSearchNowHops(message.GetPennSearch().NowHops + 1);
         transmitRequest(message, next_addr); // 找到了，但是这个key的信息存储在下一个节点，所以需要从下一个节点设置
       }
@@ -939,3 +929,7 @@ bool PennChord::CheckInside(uint32_t keyA, uint32_t keyB, uint32_t keyC)
 
 // NEED FIX: 
 // leave之后在join一堆空的，需要测试这种工况
+
+// TODO:1 如何维护一个FingerTable
+// TODO:2 撰写LookUp函数，可以实现LookUp(K)
+// TODO:3 修改添加节点和删除节点的函数

@@ -252,8 +252,26 @@ private:
   // std::pair<Ipv4Address, Ipv4Address> GetPreAndSucc(Ipv4Address MyNode ,Ipv4Address Node1,Ipv4Address Node2);
   std::pair<Ipv4Address, Ipv4Address> GetPreAndSucc(Ipv4Address MyNode ,Ipv4Address Node1,Ipv4Address Node2);
   bool CheckInside(uint32_t A, uint32_t B, uint32_t C);
-
-
+  struct FingerTableUse
+  {
+      Ipv4Address succ; // 起始节点
+      uint32_t key;
+      FingerTableUse() : succ("0"), key(0) {}
+      FingerTableUse(Ipv4Address succ) : succ(succ) {
+        key = PennKeyHelper::CreateShaKey(succ);
+      }
+      // 编写一个函数 参数是一个a 一个k  返回 a+2^k 在uint32_t范围内的值 可能会溢出
+      uint32_t GetFingerStart(uint32_t a, uint32_t k) {
+        if (k >= 32) {
+            throw std::out_of_range("k must be less than 32");
+        }
+        return a + (1u << k);
+    }
+  };
+  FingerTableUse fingerTable[32]; // 2^160
+  //  1 2 3 4 5 6 7 8 9 
+  //  2 2 2 2 3 3 3 3 0 0 0 1 1 1
+  // fingerTable是一个递增的数组，可以使用二分查找
   // void updata_use(PennChordMessage chordMsg);
 };
 
