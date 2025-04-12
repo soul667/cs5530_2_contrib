@@ -131,6 +131,9 @@ public:
   void ProcessPingReq(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort);
   void ProcessPingRsp(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort);
   void ProcessLookUp(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort);
+  void ProcessFingerTableLookUp(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort);
+  Ipv4Address GetFinerTableTargetId(uint32_t use_key);
+
   // void ProcessUpdateNeighbors(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort);
   void ProcessRingState(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort);
   void ProcessPeenSearchResponse(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort);
@@ -242,7 +245,8 @@ private:
   {
     SET_ALL = 0,
     SET_PRE,
-    SET_SUCC
+    SET_SUCC,
+    SET_FINER_FIRST
   };
   static const std::map<Send_Command, std::string> commandStrings;
   // void SendCommand(Ipv4Address ControledIp,std::string command);
@@ -251,14 +255,28 @@ private:
 
   // std::pair<Ipv4Address, Ipv4Address> GetPreAndSucc(Ipv4Address MyNode ,Ipv4Address Node1,Ipv4Address Node2);
   std::pair<Ipv4Address, Ipv4Address> GetPreAndSucc(Ipv4Address MyNode ,Ipv4Address Node1,Ipv4Address Node2);
-  bool CheckInside(uint32_t A, uint32_t B, uint32_t C);
+  bool InInterval(uint32_t A, uint32_t B, uint32_t C); // C是B的Succ  使用的时候记得注意一下
+
+  // bool CheckInsidePre(uint32_t A, uint32_t B, uint32_t C);
+
+  void SendFingerTableProgress(uint32_t send_index);
+  
+  void UpdateFingerTableProgress(uint32_t send_index);
+
+  // finger table 的succ表示这个节点的下一个 但是我们在检查的时候只会检查上一个
+  // 所以实际应该保存的是这个节点的predecessor
   struct FingerTableUse
   {
-      Ipv4Address succ; // 起始节点
+      Ipv4Address node; // 起始节点
+      Ipv4Address pre; // 起始节点
+
       uint32_t key;
-      FingerTableUse() : succ("0"), key(0) {}
-      FingerTableUse(Ipv4Address succ) : succ(succ) {
-        key = PennKeyHelper::CreateShaKey(succ);
+      FingerTableUse() : node("0"),pre("0"), key(0) {}
+      FingerTableUse(Ipv4Address node,Ipv4Address pre) : node(node),pre(pre) {
+        key = PennKeyHelper::CreateShaKey(node);
+      }
+      void SetKey() {
+        key = PennKeyHelper::CreateShaKey(node);
       }
       // 编写一个函数 参数是一个a 一个k  返回 a+2^k 在uint32_t范围内的值 可能会溢出
       uint32_t GetFingerStart(uint32_t a, uint32_t k) {
@@ -267,6 +285,9 @@ private:
         }
         return a + (1u << k);
     }
+
+ 
+    // 编写排序重定义< 按照
   };
   FingerTableUse fingerTable[32]; // 2^160
   //  1 2 3 4 5 6 7 8 9 
@@ -280,7 +301,12 @@ inline uint32_t GetHashFromIp(Ipv4Address ipAddr)
 
 // 每次更新一个节点的successor 和successor的时候都会将其放入我们最新的map_table中
 std::string CreateShaKey_(const Ipv4Address& ip);
-
+uint32_t GetUpdateStart(uint32_t n,int i) {
+  uint32_t m_bits = 32; // 你用了 32-bit 的 key
+  uint32_t pow = 1u << (i - 1); // 相当于 2^(i-1)
+  uint32_t need_find = (n + (1u << m_bits) - pow) % (1u << m_bits);
+  return need_find;
+}
 #endif
 
 

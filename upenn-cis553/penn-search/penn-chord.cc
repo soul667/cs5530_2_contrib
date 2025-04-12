@@ -29,7 +29,8 @@ using namespace ns3;
 const std::map<PennChord::Send_Command, std::string> PennChord::commandStrings = {
     {SET_ALL, "SET_ALL"},
     {SET_PRE, "SET_PRE"},
-    {SET_SUCC, "SET_SUCC"}};
+    {SET_SUCC, "SET_SUCC"},
+    {SET_FINER_FIRST, "SET_FINER_FIRST"}};
 // 节点信息结构体
 struct ChordNode
 {
@@ -192,6 +193,13 @@ void PennChord::ProcessCommand(std::vector<std::string> tokens)
         new_node.predecessor = ipAddr;
         m_selfNode = new_node;
         first_node_id = JoinNodeId;
+        // 初始化finger table为它
+        for (int i = 0; i <= 31; i++)
+        {
+          fingerTable[i].node = ipAddr;
+          fingerTable[i].pre = ipAddr;
+          fingerTable[i].SetKey();
+        }
         // std::cout << " DEBUG【" << 0 << "】 INFO " << m_selfNode.successor << "(" << GetIdFromIp(m_selfNode.successor) << ")   " << m_selfNode.predecessor << " " << "(" << GetIdFromIp(m_selfNode.predecessor) << ")" << ipAddr << std::endl;
 
         // std::cout << "First node joined: First node joined: " << JoinNodeId << " IP Address: " << ipAddr << std::endl;
@@ -279,6 +287,7 @@ void PennChord::RecvMessage(Ptr<Socket> socket)
     ProcessLookUp(message, sourceAddress, sourcePort);
     ProcessCommandSelfUse(message, sourceAddress, sourcePort);
     ProcessRingState(message, sourceAddress, sourcePort);
+    ProcessFingerTableLookUp(message, sourceAddress, sourcePort);
     // std::cout <<"NODE【"<<GetIdFromIp(ipAddr)<<"】:  "<< "NowIp: " << ipAddr << " Hash: " <<PennKeyHelper::CreateShaKey( m_selfNode.successor)- PennKeyHelper::CreateShaKey(ipAddr)<< " Pree: " << m_selfNode.predecessor <<"  Suss"<< m_selfNode.successor << std::endl;
     //  std::cout << " DEBUG【" << JoinNodeId << "】 INFO " << m_selfNode.successor << "(" << GetIdFromIp(m_selfNode.successor) << ")   " << m_selfNode.predecessor << " " << "(" << GetIdFromIp(m_selfNode.predecessor) << ")" << ipAddr << "   Hash: " <<PennKeyHelper::CreateShaKey(ipAddr)<<std::endl;
     break;
@@ -296,8 +305,6 @@ void PennChord::RecvMessage(Ptr<Socket> socket)
 void PennChord::ProcessLookUp(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort)
 {
   std::string lookupMessage = message.GetLookUp().lookupMessage;
-  if (lookupMessage != "LookupReq_Join")
-    return;
 
   if (lookupMessage == "LookupReq_Join")
   {
@@ -421,15 +428,14 @@ void PennChord::SetAddressNodeMap(std::map<Ipv4Address, uint32_t> addressNodeMap
 void PennChord::ProcessFind(PennChordMessage message)
 {
   std::string lookupMessage = message.GetLookUp().lookupMessage;
-  Ipv4Address JoinTargetNode=message.GetLookUp().JoinNode;
+  Ipv4Address JoinTargetNode = message.GetLookUp().JoinNode;
 
-  Ipv4Address A =JoinTargetNode;
+  Ipv4Address A = JoinTargetNode;
   Ipv4Address B = ipAddr;
   Ipv4Address C = m_selfNode.successor;
   uint32_t keyA = PennKeyHelper::CreateShaKey(A);
   uint32_t keyB = PennKeyHelper::CreateShaKey(B);
   uint32_t keyC = PennKeyHelper::CreateShaKey(C);
-
 
   uint32_t currHash = PennKeyHelper::CreateShaKey(ipAddr);
   uint32_t NextNodeKey = PennKeyHelper::CreateShaKey(m_selfNode.successor);
@@ -438,9 +444,27 @@ void PennChord::ProcessFind(PennChordMessage message)
   // TODO:  JoinNode可能不对 检查一下
   if (m_selfNode.successor == m_selfNode.predecessor && (first_node_id >= 0))
   {
+    // 向只有一个节点的里面添加
     m_selfNode.successor = JoinTargetNode;
     m_selfNode.predecessor = JoinTargetNode;
     SendCommand(message.GetLookUp().JoinNode, Send_Command::SET_ALL, ipAddr, ipAddr);
+    // 这里初始化更新一下FingerTable 都是它自己
+    // 1. 初始化自己的fingerTable
+    // fingerTable[0].node=m_selfNode.successor;
+    // fingerTable[0].pre=ipAddr;
+
+    // 这个好求
+    fingerTable[0].node = JoinTargetNode;
+    fingerTable[0].pre = ipAddr;
+    fingerTable[0].SetKey();
+    for (int i = 1; i <= 31; i++)
+    {
+      SendFingerTableProgress(i);
+    }
+    // message.SetLookUpMessageType("FingerTableInitFirst");
+    
+    // 2. 更新其他人的fingerTable
+    // SendCommand(message.GetLookUp().JoinNode, Send_Command::SET_FINER_FIRST, ipAddr, ipAddr);
     first_node_id = -1;
     // 每次节点向发起初始查找请求的节点返回查找结果时 也就是找到的时候
 
@@ -454,29 +478,59 @@ void PennChord::ProcessFind(PennChordMessage message)
         std::to_string(FromNodeId),
         FromNodeKey));
   }
-  else{
-    bool isInCircle = CheckInside(keyA, keyB, keyC);
-    if(isInCircle){
+  else
+  {
+    bool isInCircle = InInterval(keyA, keyB, keyC);
+    if (isInCircle)
+    {
       SendCommand(A, Send_Command::SET_PRE, B, B);
       SendCommand(A, Send_Command::SET_SUCC, C, C);
       SendCommand(B, Send_Command::SET_SUCC, A, A);
       SendCommand(C, Send_Command::SET_PRE, A, A);
+      // 这里顺便初始化它的FingetTable
+
+      // 初始化自己的fingerTable
+      // TODO: 这里更新的时候好像不太全
+      fingerTable[0].node = JoinTargetNode;
+      fingerTable[0].pre = ipAddr;
+      fingerTable[0].SetKey();
+      for (int i = 1; i <= 31; i++)
+      {
+        SendFingerTableProgress(i);
+      }
+      //uint32_t n = PennKeyHelper::CreateShaKey(JoinTargetNode);
+      for(int i=1;i<=32;i++){
+
+        UpdateFingerTableProgress(i);
+      }
+      // 更新其他人的fingerTable
     }
-    else{
+    else
+    {
       Ipv4Address send_target_addr = m_selfNode.successor;
       // 先检查一下finger table里面 有没有合适的send_target_addr
-      int now_max=0;
-      int now_key=PennKeyHelper::CreateShaKey(ipAddr);
-      for(int i=0;i<=31;i++){
-        FingerTableUse fingerTable_=fingerTable[i];
-        if(fingerTable_.succ!="0"){
-          uint32_t key_start=fingerTable_.GetFingerStart(now_key,i);
-          // if(now_key
+      int now_max = 0;
+      int now_key = PennKeyHelper::CreateShaKey(ipAddr);
+      for (int i = 0; i <= 31; i++)
+      {
+        FingerTableUse fingerTable_ = fingerTable[i];
+        if (fingerTable_.node != "0")
+        {
+          uint32_t key_start = fingerTable_.GetFingerStart(now_key, i);
+          if (now_key > key_start)
+          {
+            if (now_max < key_start)
+            {
+              now_max = key_start;
+              if (fingerTable_.pre != "0")
+                send_target_addr = fingerTable_.pre;
+            }
+          }
         }
         // if()
       }
       message.SetLookUpThoughNode(send_target_addr);
-      transmitRequest(message,send_target_addr);
+      transmitRequest(message, send_target_addr);
       // 转发请求
 
       CHORD_LOG(GraderLogs::GetLookupForwardingLogStr(
@@ -569,6 +623,14 @@ void PennChord::ProcessCommandSelfUse(PennChordMessage message, Ipv4Address sour
     // if (DEBUG) std::cout << "Setting both successor and predecessor - Succ: " << ip_succ << ", Pred: " << ip_pre << std::endl;
     m_selfNode.successor = ip_succ;
     m_selfNode.predecessor = ip_pre;
+
+    fingerTable[0].node = ip_succ;
+    fingerTable[0].pre = ip_succ;
+    fingerTable[0].SetKey();
+    for (int i = 1; i <= 31; i++)
+    {
+      SendFingerTableProgress(i);
+    }
   }
   else if (command == "SET_PRE")
   {
@@ -580,6 +642,27 @@ void PennChord::ProcessCommandSelfUse(PennChordMessage message, Ipv4Address sour
     // if (DEBUG) std::cout << "Setting successor to: " << ip_succ << std::endl;
     m_selfNode.successor = ip_succ;
   }
+  // TODO: 新增一个SET_FINGER_TABLE模式  用于查找到FingerTable的值后更新
+  else if (command == "SET_FINGER_TABLE")
+  {
+  }
+  else if (command == "SET_FINER_FIRST")
+  {
+    // std::cout << "Setting finger table to: " << ip_succ << std::endl;
+
+    for (int i = 0; i <= 31; i++)
+    {
+      fingerTable[i].node = ip_succ;
+      fingerTable[i].pre = ipAddr;
+      fingerTable[i].SetKey();
+    }
+  }
+  else if (command == "Ringstate")
+  {
+    // if (DEBUG) std::cout << "Setting RingState to: " << ip_succ << std::endl;
+    outcontrol();
+  }
+
   else
   {
     // if (DEBUG) std::cout << "Received unknown command: " << command << std::endl;
@@ -681,14 +764,15 @@ void PennChord::ProcessPeenSearchResponse(PennChordMessage message, Ipv4Address 
     uint32_t keyC = PennKeyHelper::CreateShaKey(C);
     Ipv4Address target_addr = m_selfNode.successor;
     bool find_status = 0;
-    find_status = CheckInside(keyA, keyB, keyC);
+    find_status = InInterval(keyA, keyB, keyC);
     // 如果找到了
     if (find_status)
     {
       message.SetPennSearchOperation("publish_set");
       transmitRequest(message, target_addr);
     }
-    else{
+    else
+    {
       transmitRequest(message, target_addr);
     }
   }
@@ -815,7 +899,7 @@ void PennChord::ProcessPeenSearchResponse(PennChordMessage message, Ipv4Address 
       // Ipv4Address next_addr = m_selfNode.successor;
 
       bool find_status = 0;
-      find_status = CheckInside(keyA, keyB, keyC);
+      find_status = InInterval(keyA, keyB, keyC);
 
       // 如果找到了
       if (find_status)
@@ -910,26 +994,244 @@ void PennChord::ProcessSearch(uint32_t send_id, std::vector<std::string> findter
 }
 
 // TODO: 添加函数 作用是判断 A 是否在B C中间
-bool PennChord::CheckInside(uint32_t keyA, uint32_t keyB, uint32_t keyC)
+bool PennChord::InInterval(uint32_t keyA, uint32_t keyB, uint32_t keyC)
 {
-  bool find_status = 0;
+  if (keyB == keyC)
+    return false; // 区间为空
+  if (keyA == keyB || keyA == keyC)
+    return false; // 排除边界
+
   if (keyC > keyB)
   {
-    if (keyA > keyB && keyA < keyC)
-    {
-      find_status = 1;
-    }
+    return keyA > keyB && keyA < keyC;
   }
-  else if (keyC < keyB && ((keyA < keyC) || keyA > keyB))
+  else
   {
-    find_status = 1;
+    return keyA > keyB || keyA < keyC;
   }
-  return find_status;
 }
 
-// NEED FIX: 
+// void PennChord::ProcessFingerFind()
+// NEED FIX:
 // leave之后在join一堆空的，需要测试这种工况
 
-// TODO:1 如何维护一个FingerTable
-// TODO:2 撰写LookUp函数，可以实现LookUp(K)
-// TODO:3 修改添加节点和删除节点的函数
+// TODO: 添加维护finger table的函数
+//  我们将环挨个走一遍即可
+void PennChord::SendFingerTableProgress(uint32_t send_index)
+{
+  PennChordMessage message = PennChordMessage(PennChordMessage::LOOK_UP, GetNextTransactionId());
+  // 设置index
+  // message.GetLookUp().finger_query_index=send_index;
+  message.SetFingerQueryIndex(send_index);
+  message.SetFromNode(ipAddr);
+  message.SetLookUpMessageType("finger_find_successor");
+
+  Ipv4Address target_ip = m_selfNode.successor;
+  transmitRequest(message, target_ip); // 因为自己的FingerTable还没有初始化所以直接发送到下一个
+}
+
+void PennChord::UpdateFingerTableProgress(uint32_t send_index)
+{
+  PennChordMessage message = PennChordMessage(PennChordMessage::LOOK_UP, GetNextTransactionId());
+  // 设置index
+  // message.GetLookUp().finger_query_index=send_index;
+  message.SetFingerQueryIndex(send_index);
+  message.SetFromNode(ipAddr);
+  message.SetLookUpMessageType("finger_find_pre");
+  message.SetLookUpId(send_index);
+
+  Ipv4Address target_ip = m_selfNode.successor;
+  transmitRequest(message, target_ip); // 因为自己的FingerTable还没有初始化所以直接发送到下一个
+}
+
+void PennChord::ProcessFingerTableLookUp(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort)
+{
+  std::string lookupMessage = message.GetLookUp().lookupMessage;
+  if (lookupMessage != "finger_find_successor" && lookupMessage != "finger_find_successor_return" && lookupMessage != "finger_find_pre"
+  && lookupMessage != "finger_find_pre_return" &&lookupMessage != "update_finger_table"
+  )
+    return;
+  // 剩下的就是处理FingerTable  跟正常的lookup一样 只是处理的时候多处理一下
+  if (lookupMessage == "finger_find_successor")
+  {
+    // Ipv4Address A =JoinTargetNode;
+    Ipv4Address B = ipAddr;
+    Ipv4Address C = m_selfNode.successor;
+    uint32_t keyA = message.GetLookUp().GetQueryKey(); // 要查找的 key（start = n + 2^i）
+    uint32_t keyB = PennKeyHelper::CreateShaKey(B);    // 当前节点的 hash
+    uint32_t keyC = PennKeyHelper::CreateShaKey(C);    // 当前 successor 的 hash
+    bool isInCircle = InInterval(keyA, keyB, keyC);
+    if (keyA == keyC) // 这里是因为反正succ(k)=该节点的下一个 使用1是没问题的
+      isInCircle = 1;
+    if (isInCircle)
+    {
+      message.SetFingerTableNode(m_selfNode.successor);
+      message.SetFingerTablePredecessor(ipAddr);
+      message.SetLookUpMessageType("finger_find_successor_return");
+      Ipv4Address target_ip = message.GetFromNode();
+      transmitRequest(message, target_ip);
+      // message里面是自带index的
+    }
+    else
+    {
+      Ipv4Address send_target_addr = m_selfNode.successor;
+      uint32_t now_key = PennKeyHelper::CreateShaKey(ipAddr);
+      uint32_t target_key = keyA;
+      for (int i = 0; i <= 31; i++)
+      {
+        FingerTableUse fingerTable_ = fingerTable[i];
+        if (fingerTable_.node != "0")
+        {
+          uint32_t finger_key = PennKeyHelper::CreateShaKey(fingerTable_.node);
+          if (InInterval(finger_key, now_key, target_key))
+          {
+            send_target_addr = fingerTable_.node; // 或 fingerTable_.pre，如果你想跳 predecessor
+          }
+        }
+        //   // if()
+      }
+      // message.SetLookUpThoughNode(send_target_addr);
+      transmitRequest(message, send_target_addr);
+      // // 转发请求
+
+      // CHORD_LOG(GraderLogs::GetLookupForwardingLogStr(
+      //     currHash,
+      //     closestFingerString,
+      //     NextNodeKey,
+      //     target_key));
+    }
+  }
+  else if (lookupMessage == "finger_find_pre"){
+    // 反向的环 寻找前面的
+    Ipv4Address B = m_selfNode.predecessor;
+    Ipv4Address C = ipAddr;
+    uint32_t keyA = message.GetLookUp().GetQueryKey(); // 要查找的 key
+    uint32_t keyB = PennKeyHelper::CreateShaKey(B);    // 当前 predecessor 的 hash
+    uint32_t keyC = PennKeyHelper::CreateShaKey(C);    //  当前节点的 hash
+
+    bool isInCircle = InInterval(keyA, keyB, keyC);
+    if (keyA == keyB) // 这里是因为反正succ(k)=该节点的下一个 使用1是没问题的
+      isInCircle = 1;
+    if(isInCircle){
+      message.SetFingerTableNode(ipAddr);
+      message.SetFingerTablePredecessor(m_selfNode.predecessor);
+      message.SetLookUpMessageType("finger_find_pre_return");
+      Ipv4Address target_ip = message.GetFromNode();
+      transmitRequest(message, target_ip);
+    }
+    else{
+      // 反向查找（find_predecessor(key)）只能通过 successor/链表式递归完成
+      Ipv4Address send_target_addr = m_selfNode.predecessor;
+      transmitRequest(message, send_target_addr);
+    }
+  }
+  // 设置某个index的finger table
+  else if (lookupMessage == "finger_find_successor_return")
+  {
+    // 设置FingerTable
+    uint32_t index = message.GetFingerQueryIndex();
+    Ipv4Address node = message.GetFingerTableNode();
+    Ipv4Address pre = message.GetFingerTablePredecessor();
+    fingerTable[index].node = node;
+    fingerTable[index].pre = pre;
+    fingerTable[index].SetKey();
+    if (DEBUG)
+      std::cout << "设置FingerTable" << std::endl;
+    if (DEBUG)
+      std::cout << "index: " << index << "  node: " << node << "  pre: " << pre << std::endl;
+  }
+  
+  else if (lookupMessage == "finger_find_pre_return")
+  {
+    // 这时候就找到了节点P
+    Ipv4Address p=message.GetFingerTablePredecessor();
+    message.SetLookUpMessageType("update_finger_table");
+    message.SetFromNode(ipAddr);
+  }
+  else if (lookupMessage == "update_finger_table")
+  {
+    Ipv4Address s=message.GetLookUp().FromNode;
+    Ipv4Address n=ipAddr;
+    uint32_t s_=PennKeyHelper::CreateShaKey(s);
+    uint32_t n_=PennKeyHelper::CreateShaKey(n);
+    int i=message.GetLookUpId();
+
+    // uint32_t key_a=s_key;
+    // uint32_t key_b=n_key;
+
+    uint32_t finger_i_node=PennKeyHelper::CreateShaKey(fingerTable[i].node);
+    bool need_update=0;
+    if(s_==n_ ||(InInterval(s_, n_,finger_i_node)))
+    {
+      need_update=1;
+    }
+    if(need_update){
+      // 更新FingerTable
+      fingerTable[i].node=s;
+      Ipv4Address p=m_selfNode.predecessor;
+      // p.update_finger_table(s, i);
+      // 递归更新
+      transmitRequest(message, p);
+    }
+  }
+}
+// 查找在fingerkey中
+Ipv4Address PennChord::GetFinerTableTargetId(uint32_t use_key)
+{
+  Ipv4Address send_target_addr = m_selfNode.successor;
+  // 先检查一下finger table里面 有没有合适的send_target_addr
+  int now_max = 0;
+  int now_key = use_key;
+  for (int i = 0; i <= 31; i++)
+  {
+    FingerTableUse fingerTable_ = fingerTable[i];
+    if (fingerTable_.node != "0")
+    {
+      uint32_t key_start = fingerTable_.GetFingerStart(now_key, i);
+      if (now_key > key_start)
+      {
+        if (now_max < key_start)
+        {
+          now_max = key_start;
+          if (fingerTable_.pre != "0")
+            send_target_addr = fingerTable_.pre;
+        }
+      }
+    }
+    // if()
+  }
+}
+// 我们要找的是：有哪些节点的第 i 个 finger 应该指向新加入的节点 n？
+// 也就是：
+// n ∈ (p + 2^{i-1}, finger[i])      ← 新节点 n 落在这段 finger 范围内
+
+// 判断新加入的节点 n 是否更适合被当前节点的第 i 个 finger 所指向 —— 如果是，就更新它；并递归传播给它的前驱。
+// if n ∈ [finger[i].start, finger[i].node):
+//     finger[i].node = n
+//     p.predecessor.finger_find_pre(n, i)
+
+// TODO: 在LookUp的时候，有对相等的特殊情况做处理吗？
+
+// TODO: 优化查找
+// for i = 1 to m - 1                                  // 初始化剩余 finger 表项
+//     if (start 属于 [n, finger[i].node)) {
+//         finger[i+1].node = finger[i].node
+//     } else {
+//         finger[i+1].node = find_successor(start)
+//     }
+
+// TODO: update_others
+// TODO: 实现find_predecessor的功能
+// for i = 1 to m
+//     p = find_predecessor(n - 2^{i-1})               // 找到可能受影响的节点
+//     p.finger_find_pre(n, i)                    // 通知它更新第 i 个 finger
+
+// TODO: finger_find_pre(n, i)：如果 n 更合适，更新第 i 个 finger
+
+// if (n 属于 [finger[i].node)) {
+//   finger[i].node = n
+//   p = predecessor
+//   p.finger_find_pre(n, i)                    // 向前传播
+// }
+
+// TODO: closest_preceding_finger

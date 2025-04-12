@@ -32,8 +32,23 @@ class PennChordMessage : public Header
 public:
   PennChordMessage();
   virtual ~PennChordMessage();
-  // Getter和Setter for maxDiff
-  void SetLookUpMaxDiff(int maxDiff);
+  // Getter和Setter for finger_query_index
+  void SetLookUpMaxDiff(int finger_query_index);
+  
+  void SetFingerQueryIndex(int index);
+  void SetFromNode(Ipv4Address fromNode);
+  void SetFingerTableNode(Ipv4Address node);
+  void SetFingerTablePredecessor(Ipv4Address prenode);
+
+
+  // SetFingerTablePredecessor
+  Ipv4Address GetFingerTableNode();
+  uint32_t GetFingerQueryIndex();
+  // Ipv4Address SetFingetTablePredecessor(Ipv4Address prenode); 
+  Ipv4Address GetFingerTablePredecessor();
+
+  Ipv4Address GetFromNode();
+
   int GetLookUpMaxDiff();
 
   // Getter和Setter for Id
@@ -149,7 +164,14 @@ public:
   {
     m_message.lookUpMessage.lookupMessage = message;
   };
-
+  void SetLookUpId(int id)
+  {
+    m_message.lookUpMessage.Id = id;
+  };
+  int GetLookUpId(int id)
+  {
+    return id;
+  };
   void SetLookUpPreIp(Ipv4Address message)
   {
     m_message.lookUpMessage.JoinNode = message;
@@ -211,17 +233,32 @@ public:
     void Serialize (Buffer::Iterator &start) const;
     uint32_t Deserialize (Buffer::Iterator &start);
     // Payload
-    Ipv4Address ThoughNode;
+    Ipv4Address ThoughNode;   
     Ipv4Address JoinNode;
     Ipv4Address FromNode; // 一开始的发起请求的节点
 
     std::string key;
     std::string lookupMessage;
 
-    // ADD a max diff and a prifer id 
-    int maxDiff=0;
+    // FingerTableUse
+    int finger_query_index=0; //The index for initiating finger query
     int Id=-1;
 
+    uint32_t GetFingerStart(uint32_t a, uint32_t k) {
+      if (k >= 32) {
+          throw std::out_of_range("k must be less than 32");
+      }
+      return a + (1u << k);
+  }
+    // 这里返回的是查询的Key
+    uint32_t GetQueryKey(){
+      uint32_t Key=PennKeyHelper::CreateShaKey(FromNode);
+      return GetFingerStart(Key,finger_query_index);
+    }
+
+    // 下面是给FingerTable查询专用的Set和Get函数，就不用别的变量名了
+  
+    //------------------------------------------------------------
   };
 
   struct RingState {

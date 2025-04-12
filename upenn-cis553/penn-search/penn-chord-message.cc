@@ -482,7 +482,7 @@ PennChordMessage::LookUp::Deserialize(Buffer::Iterator &start)
   start.Read(reinterpret_cast<uint8_t *>(msgBuffer.data()), msgLength);
   lookupMessage.assign(msgBuffer.data(), msgLength);
   // 新增字段反序列化
-  maxDiff = start.ReadNtohU32();
+  finger_query_index = start.ReadNtohU32();
   Id = start.ReadNtohU32();
 
   return GetSerializedSize();
@@ -511,7 +511,7 @@ void PennChordMessage::LookUp::Serialize(Buffer::Iterator &start) const
     const uint8_t *msgData = reinterpret_cast<const uint8_t *>(lookupMessage.data());
     start.Write(msgData, msgSize);
   }
-  start.WriteHtonU32(maxDiff);
+  start.WriteHtonU32(finger_query_index);
   start.WriteHtonU32(Id);
 }
 
@@ -529,22 +529,55 @@ uint32_t GetAbsDiffHash(Ipv4Address ipAddr1, Ipv4Address ipAddr2)
   uint32_t hash2 = PennKeyHelper::CreateShaKey(ipAddr2);
   return std::abs(static_cast<int>(hash1) - static_cast<int>(hash2));
 }
-// Getter和Setter for maxDiff
-void SetLookUpMaxDiff(int maxDiff);
-int GetLookUpMaxDiff();
+// // Getter和Setter for finger_query_index
+// void SetLookUpMaxDiff(int finger_query_index);
+// int GetLookUpMaxDiff();
 
-// Getter和Setter for Id
-void SetLookUpId(int id);
-int GetLookUpId();
-
-void PennChordMessage::SetLookUpMaxDiff(int maxDiff)
+// // Getter和Setter for Id
+// void SetLookUpId(int id);
+// int GetLookUpId();
+void PennChordMessage::SetFingerQueryIndex(int index)
 {
-  m_message.lookUpMessage.maxDiff = maxDiff;
+    m_message.lookUpMessage.finger_query_index = index;
+}
+void PennChordMessage::SetFromNode(Ipv4Address fromNode)
+{
+    m_message.lookUpMessage.FromNode = fromNode;
+}
+void PennChordMessage::SetFingerTableNode(Ipv4Address node)
+{
+    m_message.lookUpMessage.JoinNode = node;
+}
+Ipv4Address PennChordMessage::GetFingerTableNode()
+{
+    return m_message.lookUpMessage.JoinNode;
+}
+uint32_t PennChordMessage::GetFingerQueryIndex()
+{
+    return m_message.lookUpMessage.finger_query_index;
+}
+
+void PennChordMessage::SetFingerTablePredecessor(Ipv4Address prenode)
+{
+    m_message.lookUpMessage.ThoughNode = prenode;
+}
+
+Ipv4Address PennChordMessage::GetFingerTablePredecessor()
+{
+    return m_message.lookUpMessage.ThoughNode;
+}
+Ipv4Address PennChordMessage::GetFromNode()
+{
+    return m_message.lookUpMessage.FromNode;
+}
+void PennChordMessage::SetLookUpMaxDiff(int finger_query_index)
+{
+  m_message.lookUpMessage.finger_query_index = finger_query_index;
 }
 
 int PennChordMessage::GetLookUpMaxDiff()
 {
-  return m_message.lookUpMessage.maxDiff;
+  return m_message.lookUpMessage.finger_query_index;
 }
 
 void PennChordMessage::SetLookUpId(int id)
