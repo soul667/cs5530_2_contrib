@@ -52,8 +52,8 @@ public:
   int GetLookUpMaxDiff();
 
   // Getter和Setter for Id
-  void SetLookUpId(int id);
-  int GetLookUpId();
+  // void SetLookUpId(int id);
+  // int GetLookUpId();
   enum MessageType
   {
     PING_REQ = 1,
@@ -168,9 +168,9 @@ public:
   {
     m_message.lookUpMessage.Id = id;
   };
-  int GetLookUpId(int id)
+  int GetLookUpId()
   {
-    return id;
+    return m_message.lookUpMessage.Id;
   };
   void SetLookUpPreIp(Ipv4Address message)
   {
@@ -255,6 +255,7 @@ public:
       uint32_t Key=PennKeyHelper::CreateShaKey(FromNode);
       return GetFingerStart(Key,finger_query_index);
     }
+
 
     // 下面是给FingerTable查询专用的Set和Get函数，就不用别的变量名了
   

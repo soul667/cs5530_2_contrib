@@ -580,15 +580,15 @@ int PennChordMessage::GetLookUpMaxDiff()
   return m_message.lookUpMessage.finger_query_index;
 }
 
-void PennChordMessage::SetLookUpId(int id)
-{
-  m_message.lookUpMessage.Id = id;
-}
+// void PennChordMessage::SetLookUpId(int id)
+// {
+//   m_message.lookUpMessage.Id = id;
+// }
 
-int PennChordMessage::GetLookUpId()
-{
-  return m_message.lookUpMessage.Id;
-}
+// int PennChordMessage::GetLookUpId()
+// {
+//   return m_message.lookUpMessage.Id;
+// }
 
 /* PENNSEARCH */
 

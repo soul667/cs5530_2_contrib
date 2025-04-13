@@ -52,8 +52,8 @@ using namespace ns3;
 //     this->id = 0;
 //     this->ipAddr = Ipv4Address::GetAny();
 //     this->hash_key = 0;
-//     this->successor = "0";
-//     this->predecessor = "0";
+//     this->successor = "0.0.0.0";
+//     this->predecessor = "0.0.0.0";
 //   }
 
 //   chord_use(uint32_t id, Ipv4Address ipAddr)
@@ -61,8 +61,8 @@ using namespace ns3;
 //     this->id = id;
 //     this->ipAddr = ipAddr;
 //     this->hash_key = PennKeyHelper::CreateShaKey(ipAddr);
-//     this->successor = "0";
-//     this->predecessor = "0";
+//     this->successor = "0.0.0.0";
+//     this->predecessor = "0.0.0.0";
 //   }
 
 //   ~chord_use()
@@ -166,9 +166,14 @@ public:
   void outcontrol();
   void  ProcessCommandSelfUse(PennChordMessage message, Ipv4Address sourceAddress, uint16_t sourcePort);
   void ProcessPublish(std::string terms, std::vector<std::string> filenames);
+  void Notify(Ipv4Address node);
+  void stabilize(Ipv4Address node);
+  void fix_fingers();
+  void stabilize_use();
   // 用于存储平均跳数  只在搜索层  不在chord层
   uint32_t lookupCount = 0; // 表示发起的查找请求总数，在Lookup函数中被更新，每次发起新的查找请求时增加计数:
   uint32_t lookupHopCount = 0; // 表示在Chord环中完成所有查找请求所经过的总跳数
+
 protected:
   virtual void DoDispose();
 
@@ -179,6 +184,9 @@ private:
   uint32_t m_currentTransactionId;
   Ptr<Socket> m_socket;
   Time m_pingTimeout;
+  Timer m_StabilizeTimer;
+  Time m_StabilizeTimeout;
+
   uint16_t m_appPort;
   // Timers
   Timer m_auditPingsTimer;
@@ -199,7 +207,7 @@ private:
     Ipv4Address ip_address;     // IP地址
     Ipv4Address predecessor;    // 前驱节点
     Ipv4Address successor;      // 后继节点
-    
+    bool preset;
     ChordNode(uint32_t node_id, Ipv4Address addr) 
         : id(node_id)
         , ip_address(addr)
@@ -213,7 +221,8 @@ private:
         , hash_key(0)
         , ip_address(Ipv4Address::GetAny())
         , predecessor(Ipv4Address::GetAny())
-        , successor(Ipv4Address::GetAny())
+        , successor(Ipv4Address::GetAny()),
+        preset(false)
     { }
   };
 
@@ -262,6 +271,7 @@ private:
   void SendFingerTableProgress(uint32_t send_index);
   
   void UpdateFingerTableProgress(uint32_t send_index);
+  Ipv4Address GetClosest(uint32_t keyA);
 
   // finger table 的succ表示这个节点的下一个 但是我们在检查的时候只会检查上一个
   // 所以实际应该保存的是这个节点的predecessor
@@ -271,7 +281,7 @@ private:
       Ipv4Address pre; // 起始节点
 
       uint32_t key;
-      FingerTableUse() : node("0"),pre("0"), key(0) {}
+      FingerTableUse() : node("0.0.0.0"),pre("0.0.0.0"), key(0) {}
       FingerTableUse(Ipv4Address node,Ipv4Address pre) : node(node),pre(pre) {
         key = PennKeyHelper::CreateShaKey(node);
       }
@@ -301,12 +311,20 @@ inline uint32_t GetHashFromIp(Ipv4Address ipAddr)
 
 // 每次更新一个节点的successor 和successor的时候都会将其放入我们最新的map_table中
 std::string CreateShaKey_(const Ipv4Address& ip);
-uint32_t GetUpdateStart(uint32_t n,int i) {
+inline uint32_t GetUpdateStart(uint32_t n,int i) {
   uint32_t m_bits = 32; // 你用了 32-bit 的 key
   uint32_t pow = 1u << (i - 1); // 相当于 2^(i-1)
   uint32_t need_find = (n + (1u << m_bits) - pow) % (1u << m_bits);
   return need_find;
 }
+
+inline uint32_t RingSubPowerOfTwo(uint32_t n, uint32_t i) {
+  // 计算 2^i
+  uint32_t pow2 = 1U << i;
+  // 使用环形减法，利用无符号数自动取模
+  return n - pow2;
+}
+
 #endif
 
 
